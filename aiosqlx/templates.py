@@ -2,27 +2,25 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import (
-    ColumnElement,
-    FromClause,
-    Label,
-    Select,
-    delete,
-    insert,
-    select,
-    update,
-)
+from sqlalchemy import Executable, FromClause, Select, delete, insert, select, update
 from sqlalchemy.orm import load_only
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping as TypingMapping
+    from collections.abc import Mapping
 
-    from sqlalchemy.sql.dml import ReturningDelete, ReturningInsert, ReturningUpdate
+    from sqlalchemy import (
+        ColumnElement,
+        Label,
+    )
+    from sqlalchemy.sql.selectable import TypedReturnsRows
 
 
 class ColumnProjection:
     """
-    Lightweight helper for defining a named column projection.
+    A Lightweight helper for defining a named column projection for frequently
+    selected column sets, these may correspond to data transfer objects (DTOs)
+    or API resource representations in your application and this can be used to
+    ensure consistent selection of those columns across queries.
 
     This class ties *logical field names* (e.g. `"id"`, `"email"`) to concrete
     SQLAlchemy column expressions, and can then:
@@ -45,17 +43,12 @@ class ColumnProjection:
     })
     ```
 
-    Then reuse it consistently across queries:
-
-    * `user_projection.select(User)`
-    * `user_projection.returning_insert(User)`
-    * `user_projection.add_with_only(select(User).where(...))`
-    * `session.execute(select(User).options(user_projection.as_loadonly()))`
+    Then reuse it consistently across queries
     """
 
     __slots__ = ('_columns',)
 
-    def __init__(self, columns: TypingMapping[str, ColumnElement[Any]]) -> None:
+    def __init__(self, columns: Mapping[str, ColumnElement[Any]]) -> None:
         """
         Initialize a column projection.
 
@@ -98,9 +91,7 @@ class ColumnProjection:
         """
         return self._columns.copy()
 
-    def copy_with(
-        self, columns: TypingMapping[str, ColumnElement[Any]]
-    ) -> ColumnProjection:
+    def copy_with(self, columns: Mapping[str, ColumnElement[Any]]) -> ColumnProjection:
         """
         Return a new projection with additional or overridden columns.
 
@@ -122,7 +113,7 @@ class ColumnProjection:
         merged.update(columns)
         return ColumnProjection(merged)
 
-    def update_columns(self, columns: TypingMapping[str, ColumnElement[Any]]) -> None:
+    def update_columns(self, columns: Mapping[str, ColumnElement[Any]]) -> None:
         """
         Update the projection in place.
 
@@ -136,6 +127,87 @@ class ColumnProjection:
             Mapping of field name → column expression to add or override.
         """
         self._columns.update(columns)
+
+    def add_returning(self, stmnt: Executable) -> TypedReturnsRows:
+        """
+        Add the projection's labeled columns to a statement's `RETURNING` clause.
+
+        Parameters
+        ----------
+        stmnt :
+            An `INSERT`, `UPDATE`, or `DELETE` statement to augment.
+        Returns
+        -------
+        Executable
+            A new statement with the projection's labeled columns added
+            to the `RETURNING` clause.
+        """
+        if not hasattr(stmnt, 'returning'):
+            raise TypeError('Statement does not support RETURNING clause')
+        return stmnt.returning(*self.elements)  # type: ignore[arg-type]
+
+
+class Projection:
+    """
+    Pair a `ColumnProjection` with a DTO type that matches its field names.
+
+    This provides a thin, typed bridge between:
+
+    * The columns and labels used in SQLAlchemy queries (`ColumnProjection`)
+    * The in-memory representation of rows in your application (`TDto`)
+
+    Requirements
+    ------------
+    * The keys in `projection.columns` must correspond to the field names
+      (constructor argument names) of `dto_type`.
+    * `dto_type` must be instantiable as `dto_type(**mapping)`.
+
+    Example
+    -------
+    ```python
+    @dataclass
+    class UserDTO:
+        id: int
+        email: str
+
+
+    user_projection = ObjectProjection(
+        UserDTO,
+        {
+            'id': User.id,
+            'email': User.email,
+        },
+    )
+    mappings_executor = MappingsExecutor(session)
+    rows = await mappings_executor.all(user_projection.select(User))
+    user_dtos = user_projection.from_mappings(rows)
+    ```
+
+    In practice, you would often reuse the same `ObjectProjection` instance
+    across multiple queries to ensure consistent column selection and mapping
+    throughout your application.
+    """
+
+    def __init__(
+        self,
+        column_projection: ColumnProjection | Mapping[str, ColumnElement[Any]],
+    ) -> None:
+        """
+        Initialize an object projection.
+
+        Parameters
+        ----------
+        transfer_object :
+            The DTO type to instantiate for each row.
+        column_projection :
+            Either a `ColumnProjection` instance or a mapping of field names
+            to column expressions (which will be used to create a new
+            `ColumnProjection` internally).
+        """
+        if isinstance(column_projection, ColumnProjection):
+            self.projection: ColumnProjection = column_projection
+        else:
+            self.projection = ColumnProjection(column_projection)
 
     def select(self, from_clause: FromClause | None = None) -> Select[Any]:
         """
@@ -153,7 +225,7 @@ class ColumnProjection:
         Select[Any]
             A `SELECT` statement selecting the projection's labeled columns.
         """
-        stmt = select(*self.elements)
+        stmt = select(*self.projection.elements)
         if from_clause is not None:
             stmt = stmt.select_from(from_clause)
         return stmt
@@ -176,7 +248,7 @@ class ColumnProjection:
             A new `Select` with the same core structure but only the
             projection's labeled columns in the SELECT list.
         """
-        return stmt.with_only_columns(*self.elements)
+        return stmt.with_only_columns(*self.projection.elements)
 
     def as_loadonly(self, *, raiseload: bool = False) -> Any:
         """
@@ -197,10 +269,9 @@ class ColumnProjection:
         Any
             The ORM loader option returned by `sqlalchemy.orm.load_only`.
         """
-        # type: ignore: SQLAlchemy's load_only returns an internal Load type.
         return load_only(*self.elements, raiseload=raiseload)  # type: ignore[arg-type]
 
-    def returning_update(self, model: type[Any]) -> ReturningUpdate:
+    def returning_update(self, model: type[Any]) -> TypedReturnsRows:
         """
         Build an `UPDATE` statement with a `RETURNING` projection.
 
@@ -215,9 +286,9 @@ class ColumnProjection:
             An UPDATE statement whose `RETURNING` clause is restricted
             to this projection's labeled columns.
         """
-        return update(model).returning(*self.elements)
+        return self.projection.add_returning(update(model))
 
-    def returning_insert(self, model: type[Any]) -> ReturningInsert:
+    def returning_insert(self, model: type[Any]) -> TypedReturnsRows:
         """
         Build an `INSERT` statement with a `RETURNING` projection.
 
@@ -232,9 +303,9 @@ class ColumnProjection:
             An INSERT statement whose `RETURNING` clause is restricted
             to this projection's labeled columns.
         """
-        return insert(model).returning(*self.elements)
+        return self.projection.add_returning(insert(model))
 
-    def returning_delete(self, model: type[Any]) -> ReturningDelete:
+    def returning_delete(self, model: type[Any]) -> TypedReturnsRows:
         """
         Build a `DELETE` statement with a `RETURNING` projection.
 
@@ -249,4 +320,13 @@ class ColumnProjection:
             A DELETE statement whose `RETURNING` clause is restricted
             to this projection's labeled columns.
         """
-        return delete(model).returning(*self.elements)
+        return self.projection.add_returning(delete(model))
+
+    @property
+    def fields(self) -> tuple[str, ...]:
+        """
+        The logical field names in the projection, in order.
+
+        These are the keys used for labeling and for object construction.
+        """
+        return tuple(self.projection.columns.keys())
