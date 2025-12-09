@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.selectable import TypedReturnsRows
 
 
-class ColumnProjection(Mapping[str, ColumnElement]):
+class ProjectionMapping(Mapping[str, ColumnElement]):
     """
     A mapping of column names to SQLAlchemy column expressions.
 
@@ -33,7 +33,7 @@ class ColumnProjection(Mapping[str, ColumnElement]):
     def __iter__(self) -> Iterator[str]:
         return iter(self._columns)
 
-    def copy_with(self, columns: Mapping[str, ColumnElement]) -> ColumnProjection:
+    def copy_with(self, columns: Mapping[str, ColumnElement]) -> ProjectionMapping:
         """
         Return a new projection with additional or overridden columns.
 
@@ -49,7 +49,7 @@ class ColumnProjection(Mapping[str, ColumnElement]):
         """
         new_columns = self._columns.copy()
         new_columns.update(columns)
-        return ColumnProjection(new_columns)
+        return ProjectionMapping(new_columns)
 
     @property
     def labeled_elements(self) -> list[ColumnElement]:
