@@ -156,5 +156,5 @@ def register_sqlalchemy_models(
 __all__ = (
     'import_by_glob',
     'import_module_names',
-    'register_sqlalchemy_models',
+    'register_sqlalchemy_models'
 )

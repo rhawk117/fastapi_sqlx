@@ -12,8 +12,7 @@ class AsyncDatabaseError(AiosqlxError):
 
 
 class DatabaseInitializationError(AsyncDatabaseError):
-    def __init__(self, message: str, *, is_open: bool) -> None:
-        super().__init__(message)
-        self.is_open = is_open
-
-
+    """
+    Error raised when the database has not been
+    initialized properly.
+    """

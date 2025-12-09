@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import make_url
 
-from aiosqlx.database import DatabaseInfo, DatabaseInitializationError
 from aiosqlx.db._core import SqlalchemyDatabase
-from aiosqlx.db._types import DatabaseConfig
+from aiosqlx.db._types import DatabaseConfig, DatabaseInfo
+from aiosqlx.exceptions import DatabaseInitializationError
 
 if TYPE_CHECKING:
     from sqlalchemy import URL

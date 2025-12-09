@@ -40,16 +40,7 @@ class SqlalchemyDatabase:
     - convenience async context managers for connections, sessions, and transactions
     - async context manager support for the database itself
     (`async with SqlalchemyDatabase(...)`)
-
-    Typical usage
-    -------------
-    >>> db = SqlalchemyDatabase.create(url)
-    >>> db.configure(config)
-    >>> async with db:
-    ...     async with db.session() as session:
-    ...         result = await session.execute(...)
     """
-
     url: URL
     mapped_base: type[DeclarativeBase]
     _async_engine: AsyncEngine | None = dc.field(default=None, init=False)
@@ -100,7 +91,6 @@ class SqlalchemyDatabase:
         if self._async_engine is None:
             raise DatabaseInitializationError(
                 'The database was never initialized',
-                is_open=False,
             )
         return self._async_engine
 
@@ -122,7 +112,6 @@ class SqlalchemyDatabase:
         if self._async_session_maker is None:
             raise DatabaseInitializationError(
                 'The database is not currently initialized',
-                is_open=False,
             )
         return self._async_session_maker
 

@@ -211,23 +211,14 @@ class DatabaseInfo:
         True if the engine / underlying connection infrastructure is considered
         "open" and usable, False if it has been disposed or is otherwise closed.
     """
-
     database: str | None
     driver_name: str
-    driver_version: str
     dialect: str
+    dialect_description: str
     pool_class: str
-    pool_size: int
-    pool_checked_out: int | None
-    pool_overflow: int | None
     echo: bool
-    echo_pool: bool | str
-    pool_pre_ping: bool
-    pool_recycle: int
-    pool_timeout: float | None
     ping_latency_ms: float
-    is_open: bool
-
+    dialect_dbapi: str | None = None
 
 RestOnReturn = Literal['rollback', 'commit'] | None
 """
