@@ -26,6 +26,66 @@ if TYPE_CHECKING:
 
 
 class Projection[T: Any]:
+    """
+    A database projection mapping SQLAlchemy columns to a transfer type. This is
+    incredibly useful for commonly selected subsets of columns that do not map directly
+    to an ORM model and converting an ORM model to a domain model or DTO.
+
+    Attributes
+    ----------
+    transfer_class : type[T]
+        The class type to project to/from, this can be a dataclass, pydantic model,
+        or any other class, see the other specializations of this class which have been
+        inherited from this one with overloads for conversion functions and ergonomics.
+    columns : ProjectionMapping
+        The mapping of column names to SQLAlchemy column expressions where the key can
+        be used as a label optionally applied to the column expression and the value is
+        the SQLAlchemy column expression. You can either supply your own instance or a
+        dict[str, ColumnElement] which will be converted to a ProjectionMapping during
+        initialization.
+    projector : Projector[T]
+        The projector function that converts raw database rows or mappings to the
+        projection's transfer type.
+
+    Examples
+    --------
+    ```python
+    from dataclasses import dataclass
+    import uuid
+    from datetime import datetime
+
+
+    @dataclass
+    class UserProfile:
+        username: str
+        email: str
+        id: uuid.UUID
+        email_verified_at: datetime | None
+
+        def is_verified(self) -> bool:
+            return self.email_verified_at is not None
+
+
+    user_profile_projection = projection(
+        UserProfile,
+        columns={
+            'username': User.username,
+            'email': User.email,
+            'id': User.id,
+            'email_verified_at': User.email_verified_at,
+        },
+        projector=DataclassProjector(
+            UserProfile, from_attributes=True, exclude_none=False
+        ),
+    )
+
+    # Create a select statement for the projection
+    stmt = user_profile_projection.select().where(User.is_active == True)
+    # Execute the statement and convert results to UserProfile instances
+    result = await session.execute(stmt)
+    user = user_profile_projection.convert(result.mappings().one())
+    ```
+    """
     def __init__(
         self,
         transfer_class: type[T],
