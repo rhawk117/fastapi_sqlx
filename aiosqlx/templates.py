@@ -1,11 +1,9 @@
-# aiosqlx/_sql/binding.py
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     ColumnElement,
-    Executable,
     FromClause,
     Label,
     Select,
@@ -17,202 +15,238 @@ from sqlalchemy import (
 from sqlalchemy.orm import load_only
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping as TypingMapping
 
     from sqlalchemy.sql.dml import ReturningDelete, ReturningInsert, ReturningUpdate
-    from sqlalchemy.sql.elements import BindParameter
-    from sqlalchemy.sql.type_api import TypeEngine
 
 
-def param(
-    name: str,
-    *,
-    type_: TypeEngine[Any] | None = None,
-    value: Any | None = None,
-    expanding: bool = False,
-) -> BindParameter[Any]:
+class ColumnProjection:
     """
-    Convenience wrapper around `sqlalchemy.bindparam`.
+    Lightweight helper for defining a named column projection.
 
-    Parameters
-    ----------
-    name : str
-        Name of the bind parameter. Must match the key used when passing
-        parameters to `execute()`.
+    This class ties *logical field names* (e.g. `"id"`, `"email"`) to concrete
+    SQLAlchemy column expressions, and can then:
 
-    type_ : TypeEngine | None, default None
-        Optional explicit SQLAlchemy type (e.g. `Integer()`, `String()`).
-        Usually SQLAlchemy can infer this from the Python value, so this
-        is only needed when you want to force a specific type.
+    * Produce labeled columns suitable for `select(...)` and `.returning(...)`
+    * Apply the projection to an existing `Select` via `with_only_columns`
+    * Build DML statements (INSERT/UPDATE/DELETE) with a `RETURNING` clause
+      restricted to the projection
+    * Generate an ORM `load_only(...)` option for the same set of attributes
 
-    value : Any | None, default None
-        Optional default value for this parameter. If provided, the parameter
-        may be omitted at execution time and this default will be used.
+    Typical usage
+    -------------
+    Define a projection once:
 
-    expanding : bool | None, default None
-        When True, treat this parameter as an "expanding" parameter for
-        use in `IN` clauses. SQLAlchemy will expand a sequence value into
-        multiple bound parameters (e.g. `IN (:ids_1, :ids_2, :ids_3)`).
+    ```python
+    user_projection = ColumnProjection({
+        'id': User.id,
+        'email': User.email,
+        'created_at': User.created_at,
+    })
+    ```
 
-    Returns
-    -------
-    BindParameter
-        A SQLAlchemy bind parameter expression.
+    Then reuse it consistently across queries:
+
+    * `user_projection.select(User)`
+    * `user_projection.returning_insert(User)`
+    * `user_projection.add_with_only(select(User).where(...))`
+    * `session.execute(select(User).options(user_projection.as_loadonly()))`
     """
-    return sa_bindparam(
-        key=name,
-        type_=type_,
-        value=value,
-        expanding=expanding
-    )
 
+    __slots__ = ('_columns',)
 
+    def __init__(self, columns: TypingMapping[str, ColumnElement[Any]]) -> None:
+        """
+        Initialize a column projection.
 
-class LabeledColumns:
-    """
-    Represents a collection of columns for frequently used SQL statements.
-
-    """
-    __slots__ = ("_columns")
-
-    def __init__(self, columns: dict[str, ColumnElement]) -> None:
-        self._columns = columns
+        Parameters
+        ----------
+        columns :
+            Mapping of logical field names to SQLAlchemy column expressions.
+            The keys are used as labels in generated SELECT/RETURNING clauses.
+        """
+        self._columns: dict[str, ColumnElement[Any]] = dict(columns)
 
     @property
     def elements(self) -> tuple[Label[Any], ...]:
         """
-        Get the labels of the columns.
+        Return the projection as labeled column expressions.
+
+        Each stored column is wrapped with `.label(name)` where `name` is the
+        key in the projection mapping.
+
+        This ensures that result rows (or mappings) can be consumed by these
+        logical names regardless of the underlying column or expression.
+
+        Returns
+        -------
+        tuple[Label[Any], ...]
+            Tuple of labeled column expressions, in the insertion order of the
+            projection mapping.
         """
         return tuple(col.label(name) for name, col in self._columns.items())
 
     @property
-    def columns(self) -> dict[str, ColumnElement]:
+    def columns(self) -> dict[str, ColumnElement[Any]]:
         """
-        Get the labeled columns mapping.
+        Return a shallow copy of the underlying column mapping.
+
+        Returns
+        -------
+        dict[str, ColumnElement[Any]]
+            Mapping of logical field name → original `ColumnElement`.
         """
         return self._columns.copy()
 
-
-    def copy_with(self, columns: dict[str, ColumnElement]) -> LabeledColumns:
+    def copy_with(
+        self, columns: TypingMapping[str, ColumnElement[Any]]
+    ) -> ColumnProjection:
         """
-        Create a new LabeledColumns instance with updated columns.
+        Return a new projection with additional or overridden columns.
+
+        This is a non-mutating variant of `update_columns`, useful when you
+        want to derive a more specific projection from a base one.
 
         Parameters
         ----------
-        columns : dict[str, ColumnElement]
-            New mapping of field names to ColumnElement objects.
+        columns :
+            Mapping of field names to new column expressions. Existing keys
+            are overridden, new keys are appended.
 
         Returns
         -------
-        LabeledColumns
-            A new instance with the updated columns.
+        ColumnProjection
+            A new projection instance containing the merged mapping.
         """
-        class_columns = self._columns.copy()
-        class_columns.update(columns)
-        return LabeledColumns(class_columns)
+        merged = self._columns.copy()
+        merged.update(columns)
+        return ColumnProjection(merged)
 
-    def update_columns(self, columns: dict[str, ColumnElement]) -> None:
+    def update_columns(self, columns: TypingMapping[str, ColumnElement[Any]]) -> None:
         """
-        Update the labeled columns.
+        Update the projection in place.
+
+        Primarily intended for setup/boot code. At call sites and in
+        reusable library code, `copy_with` is usually safer than mutating
+        shared instances.
 
         Parameters
         ----------
-        columns : dict[str, ColumnElement]
-            Mapping of field_name -> ColumnElement.
+        columns :
+            Mapping of field name → column expression to add or override.
         """
         self._columns.update(columns)
 
-    def select(self, from_clause: FromClause | None = None) -> Select:
+    def select(self, from_clause: FromClause | None = None) -> Select[Any]:
         """
-        Build a SELECT statement for the labeled columns.
+        Build a `SELECT` statement that returns only the projected columns.
 
         Parameters
         ----------
-        from_clause : FromClause | None, default None
-            Optional FROM clause to select from. For ORM models, you can
-            instead build your own select and use `with_only_columns`.
+        from_clause :
+            Optional FROM clause to select from. For ORM models you can pass
+            the mapped class or table; alternatively, you can start from an
+            existing `Select` and use `add_with_only` instead.
 
         Returns
         -------
-        sqlalchemy.sql.Select
-            A SELECT statement that selects just the labeled columns.
+        Select[Any]
+            A `SELECT` statement selecting the projection's labeled columns.
         """
-        stmnt = select(*self.elements)
+        stmt = select(*self.elements)
         if from_clause is not None:
-            stmnt = stmnt.select_from(from_clause)
-        return stmnt
+            stmt = stmt.select_from(from_clause)
+        return stmt
 
     def add_with_only(self, stmt: Select[Any]) -> Select[Any]:
         """
-        Modify a SELECT statement to include only the labeled columns.
+        Apply the projection to an existing `SELECT` via `with_only_columns`.
+
+        This preserves the original `FROM`, `WHERE`, `ORDER BY` etc., and
+        only replaces the columns in the SELECT list with the projection.
 
         Parameters
         ----------
-        stmt : Select
-            The original SELECT statement.
+        stmt :
+            Original `Select` statement to be narrowed to this projection.
 
         Returns
         -------
-        Select
-            The modified SELECT statement with only the labeled columns.
+        Select[Any]
+            A new `Select` with the same core structure but only the
+            projection's labeled columns in the SELECT list.
         """
         return stmt.with_only_columns(*self.elements)
 
-    def as_loadonly(self, *, raiseload: bool = False) -> dict[str, ColumnElement[Any]]:
+    def as_loadonly(self, *, raiseload: bool = False) -> Any:
         """
-        Get a copy of the columns mapping.
+        Build an ORM `load_only(...)` option for this projection.
 
-        Returns
-        -------
-        dict[str, ColumnElement]
-            A copy of the projection's columns mapping.
-        """
-        return load_only(*self.elements, raiseload=raiseload) # type: ignore
-
-    def returning_update(self, model: type[Any]) -> ReturningUpdate:
-        """
-        Update the labeled columns based on the model's columns.
+        This is useful when you are working with ORM queries and want to
+        restrict the loaded attributes to the projection. The keys in the
+        projection should correspond to attribute names on the mapped class.
 
         Parameters
         ----------
-        model : type[Any]
-            The SQLAlchemy model class to extract columns from.
+        raiseload :
+            Passed through to `load_only`. When True, accessing unloaded
+            attributes raises instead of silently triggering a lazy load.
+
+        Returns
+        -------
+        Any
+            The ORM loader option returned by `sqlalchemy.orm.load_only`.
+        """
+        # type: ignore: SQLAlchemy's load_only returns an internal Load type.
+        return load_only(*self.elements, raiseload=raiseload)  # type: ignore[arg-type]
+
+    def returning_update(self, model: type[Any]) -> ReturningUpdate:
+        """
+        Build an `UPDATE` statement with a `RETURNING` projection.
+
+        Parameters
+        ----------
+        model :
+            SQLAlchemy ORM model or table to update.
+
+        Returns
+        -------
+        ReturningUpdate
+            An UPDATE statement whose `RETURNING` clause is restricted
+            to this projection's labeled columns.
         """
         return update(model).returning(*self.elements)
 
     def returning_insert(self, model: type[Any]) -> ReturningInsert:
         """
-        Create an INSERT statement with RETURNING clause for the labeled columns.
+        Build an `INSERT` statement with a `RETURNING` projection.
 
         Parameters
         ----------
-        model : type[Any]
-            The SQLAlchemy model class to insert into.
+        model :
+            SQLAlchemy ORM model or table to insert into.
 
         Returns
         -------
-        Insert
-            An INSERT statement with RETURNING clause for the labeled columns.
+        ReturningInsert
+            An INSERT statement whose `RETURNING` clause is restricted
+            to this projection's labeled columns.
         """
         return insert(model).returning(*self.elements)
 
     def returning_delete(self, model: type[Any]) -> ReturningDelete:
         """
-        Create a DELETE statement with RETURNING clause for the labeled columns.
+        Build a `DELETE` statement with a `RETURNING` projection.
 
         Parameters
         ----------
-        model : type[Any]
-            The SQLAlchemy model class to delete from.
+        model :
+            SQLAlchemy ORM model or table to delete from.
 
         Returns
         -------
-        Delete
-            A DELETE statement with RETURNING clause for the labeled columns.
+        ReturningDelete
+            A DELETE statement whose `RETURNING` clause is restricted
+            to this projection's labeled columns.
         """
         return delete(model).returning(*self.elements)
-
-
-
-
-
-
