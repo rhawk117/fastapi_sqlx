@@ -24,8 +24,6 @@ class MappingsExecutor(AbstractExecutor):
     the boundary for convience instead of a weird hybrid type.
     """
 
-    __slots__ = ()
-
     async def execute(
         self,
         executable: Executable,

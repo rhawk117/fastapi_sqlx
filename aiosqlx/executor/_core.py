@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 from sqlalchemy import Executable, Select, exists, func, select
 
-from aiosqlx.e import BindArgs, ExecOpts, MappingsExecutor
+from aiosqlx.executor._mappings import MappingsExecutor
 from aiosqlx.executor._scalar import ScalarExecutor
 
 if TYPE_CHECKING:
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from aiosqlx.executor._abstract import Params
+    from aiosqlx.executor._abstract import BindArgs, ExecOpts, Params
 
 
 @dc.dataclass(slots=True)
@@ -36,6 +36,7 @@ class SqlalchemyExecutor:
     to automatically close the underlying session on exit if need be
     but keep in mind it does NOT start a transaction for you.
     """
+
     session: AsyncSession
     mappings: MappingsExecutor = dc.field(init=False)
     scalar: ScalarExecutor = dc.field(init=False)

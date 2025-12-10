@@ -518,7 +518,7 @@ class AsyncDatabase:
         Provide an :class:`AsyncSession` as an async context manager.
 
         This does **not** automatically begin a transaction. The caller is
-        responsible for calling :meth:`AsyncSession.begin` if needed.
+        responsible for calling :meth:`AsyncSession.begin` if nee
 
         Yields
         ------

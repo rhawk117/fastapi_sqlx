@@ -27,7 +27,6 @@ class AbstractExecutor(abc.ABC):
       the underlying `AsyncSession` execution methods
     """
 
-    __slots__ = ('_session',)
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session

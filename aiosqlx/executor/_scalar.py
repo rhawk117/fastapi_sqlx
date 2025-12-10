@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from aiosqlx.executor._abstract import AbstractExecutor, Params, T
+from aiosqlx.executor._abstract import AbstractExecutor, BindArgs, ExecOpts, Params, T
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from sqlalchemy.sql.selectable import TypedReturnsRows
 
-    from aiosqlx.e import BindArgs, ExecOpts
 
 
 class ScalarExecutor(AbstractExecutor):
