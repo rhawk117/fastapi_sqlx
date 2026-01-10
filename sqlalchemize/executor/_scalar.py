@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from aiosqlx.executor._abstract import AbstractExecutor, BindArgs, ExecOpts, Params, T
+from sqlalchemize.executor._abstract import AbstractExecutor, BindArgs, ExecOpts, Params, T
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

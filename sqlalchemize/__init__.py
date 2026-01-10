@@ -1,4 +1,4 @@
-from aiosqlx.db import (
+from sqlalchemize.db import (
     AsyncDatabase,
     EngineOptions,
     SqlalchemyConnection,
@@ -7,7 +7,7 @@ from aiosqlx.db import (
     create_database_from_engine,
     make_async_sessionlocal,
 )
-from aiosqlx.executor import (
+from sqlalchemize.executor import (
     AbstractExecutor,
     BindArgs,
     ExecOpts,
@@ -16,7 +16,7 @@ from aiosqlx.executor import (
     ScalarExecutor,
     SqlalchemyExecutor,
 )
-from aiosqlx.projection import ColumnProjection
+from sqlalchemize.projection import ColumnProjection
 
 __all__ = (
     'AbstractExecutor',

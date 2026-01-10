@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any, Self
 
 from sqlalchemy import Executable, Select, exists, func, select
 
-from aiosqlx.executor._mappings import MappingsExecutor
-from aiosqlx.executor._scalar import ScalarExecutor
+from sqlalchemize.executor._mappings import MappingsExecutor
+from sqlalchemize.executor._scalar import ScalarExecutor
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from aiosqlx.executor._abstract import BindArgs, ExecOpts, Params
+    from sqlalchemize.executor._abstract import BindArgs, ExecOpts, Params
 
 
 @dc.dataclass(slots=True)

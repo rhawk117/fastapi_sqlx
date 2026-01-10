@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from aiosqlx.executor._abstract import (
+from sqlalchemize.executor._abstract import (
     AbstractExecutor,
     BindArgs,
     ExecOpts,

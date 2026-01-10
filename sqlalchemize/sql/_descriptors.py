@@ -6,7 +6,7 @@ from dataclasses import dataclass, is_dataclass
 from dataclasses import fields as dataclass_fields
 from typing import TYPE_CHECKING, Any, Final
 
-from aiosqlx.sql._utils import ExtraOption, sqlalchemy_to_dict, validate_kwargs
+from sqlalchemize.sql._utils import ExtraOption, sqlalchemy_to_dict, validate_kwargs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -178,7 +178,7 @@ class PyObjectDescriptor[T: Any](AbstractClassDescriptor[T]):
         return resolved_object
 
 
-class DataAbstractClassDescriptor[T: Any](PyObjectDescriptor[T]):
+class DataclassDescriptor[T: Any](PyObjectDescriptor[T]):
     @classmethod
     def get_attributes(cls, obj_cls: type[T]) -> set[str]:
         if not is_dataclass(obj_cls):
@@ -202,7 +202,7 @@ def default_descriptors() -> DescriptorTuple:
         The default class descriptors.
     """
     return (
-        DataAbstractClassDescriptor,
+        DataclassDescriptor,
         PyObjectDescriptor
     )
 
@@ -292,4 +292,4 @@ class _DescriptorRegistry:
         yield from self.descriptors
 
 
-descriptor_registry: Final[_DescriptorRegistry] = _DescriptorRegistry()
+descriptors: Final[_DescriptorRegistry] = _DescriptorRegistry()
